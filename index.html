@@ -230,7 +230,7 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
 <script>
 (function(){
   /* ===== ① 제출 주소: Apps Script 웹 앱 URL을 따옴표 안에 붙여 넣으세요 ===== */
-  var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwrSvWvs-M60UWHKwXEvC84WvRQoyVcMZj_bwjXQwESRUSoCPv_1ds6I0krGVptXu1jAA/exec";
+  var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxHUpBBQ5yy1tW6LjfERfOY4Cq-oKubAXge09RAjZfYuhJvbelPUP0dx_v5iFltmplWUw/exec";
 
   var URL_GUIDE = "https://onnoorisv.vercel.app/";
   var URL_DRIVE = "https://drive.google.com/drive/folders/1t1R6ygm9nr5vGSOuVk7EoqOaXhIrkogl?usp=sharing";
@@ -474,12 +474,12 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
     fetch(SCRIPT_URL, { method:"POST", headers:{ "Content-Type":"text/plain;charset=utf-8" }, body:JSON.stringify(payload) })
       .then(function(r){ return r.json(); })
       .then(function(res){
-        if(!res || !res.ok) throw new Error(res && res.error ? res.error : "서버 오류");
+        if(!res || !res.ok){ var se = new Error(res && res.error ? res.error : "서버 오류"); se.fromServer = true; throw se; }
         state.lastSubmit = { at:nowKST(), done:c.done, total:c.total }; state.dirty = false; save();
         toast(c.done === c.total ? "최종 제출했습니다. 고생 많으셨습니다!" : "제출했습니다. 남은 항목을 마치면 다시 제출해 주세요.", 3600);
       })
       .catch(function(err){
-        toast("제출에 실패했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요.", 4000);
+        toast(err && err.fromServer ? "제출이 기록되지 않았습니다. 담당 매니저에게 알려 주세요. (" + err.message + ")" : "제출에 실패했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요.", 6000);
         if(window.console) console.error(err);
       })
       .then(function(){ btn.disabled = false; refresh(); });
@@ -504,4 +504,3 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
 </script>
 </body>
 </html>
-
