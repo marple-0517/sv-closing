@@ -62,6 +62,12 @@ h1{font-size:clamp(26px,6vw,34px); line-height:1.25; margin:0; font-weight:700; 
 .date b{font-size:18px; font-variant-numeric:tabular-nums; letter-spacing:-.01em}
 .date span{font-size:13px; color:var(--muted)}
 
+.notice{border-left:4px solid var(--stamp); background:var(--stamp-soft); border-radius:0 10px 10px 0; padding:12px 14px; display:flex; flex-direction:column; gap:6px; font-size:15px}
+.notice p{margin:0}
+.notice b{color:var(--stamp)}
+.note{margin:14px 18px 0; padding:11px 14px; border-radius:10px; background:var(--jade-soft); font-size:14px; line-height:1.6}
+.note b{color:var(--jade)}
+
 .who{background:var(--surface); border:1.5px solid var(--jade); border-radius:16px; padding:18px; display:flex; flex-direction:column; gap:14px}
 .who h2{font-size:17px}
 .who p{margin:0; font-size:14px; color:var(--muted)}
@@ -174,6 +180,17 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
 .m-no{background:var(--surface); border:1.5px solid var(--line); color:var(--ink)}
 .m-yes{background:var(--stamp); border:1.5px solid var(--stamp); color:#fff}
 
+.pl{margin:0 18px 14px; border:1px solid var(--line); border-radius:12px; padding:14px; background:var(--ground); display:flex; flex-direction:column; gap:12px}
+.pl h3{margin:0; font-size:15px; font-weight:700}
+.pl-f{display:flex; flex-direction:column; gap:4px}
+.pl-f label,.pl-q{font-size:13px; font-weight:600}
+.pl-f input{width:100%; max-width:160px; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-size:16px; font-variant-numeric:tabular-nums}
+.pl-f small{font-size:12.5px; color:var(--muted)}
+.pl-check{display:flex; gap:10px; align-items:flex-start; cursor:pointer; font-size:15px}
+.pl-check input{flex:none; width:20px; height:20px; margin-top:3px; accent-color:var(--jade)}
+.pl-check small{display:block; font-size:13px; color:var(--muted); font-weight:400}
+.pl-check.sub{font-size:14px}
+
 .memo{display:flex; flex-direction:column; gap:6px}
 .memo label{font-size:14px; font-weight:600}
 .memo textarea{background:var(--surface); min-height:72px; resize:vertical}
@@ -206,7 +223,7 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
 @media (max-width:420px){
   .step-head{padding:18px 14px 14px; gap:10px}
   .group{padding-inline:14px} ul.items{padding-inline:4px}
-  .addr,.rc{margin-inline:14px} .actions{padding-inline:14px}
+  .addr,.rc,.pl,.note{margin-inline:14px} .actions{padding-inline:14px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -228,7 +245,10 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
     <p class="lede">완료한 항목을 체크하고 아래 <b>제출하기</b>를 눌러 주세요. 중간에 제출해도 되고, 다시 제출하면 최신 상태로 갱신됩니다.</p>
     <div class="dates">
       <div class="date"><b>9/20 (일)</b><span>행사 마지막 날 · 1번 완료 후 1차 제출</span></div>
-      <div class="date"><b>9/22 (화)</b><span>2·3번 완료 후 최종 제출 마감</span></div>
+    </div>
+    <div class="notice">
+      <p><b>9/22(화)까지</b> 아래 체크리스트를 모두 완료하고 제출해 주세요.</p>
+      <p>택배는 행사 마지막 날에 꼭 보내지 않아도 됩니다. 다음 날 보내도 되고, <b>늦어도 9/22(화)까지만 꼭 발송을 마쳐 주세요.</b></p>
     </div>
   </header>
 
@@ -320,9 +340,9 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
           { id:"d-pledge", short:"이행각서", main:"이행각서" },
           { id:"d-etc", short:"기타 서류", main:"그 밖의 종이 서류 전부" }
         ]},
-        { label:"이행각서 최종 확인", items:[
+        { label:"이행각서 최종 확인", pledgePanel:true, items:[
           { id:"pledge100", short:"이행각서 100% 확인", important:true, main:"상인회장님과 참여점포 리스트를 대조해 이행각서 100% 취합 확인하기",
-            hint:"참여 점포 수와 이행각서 장수가 일치해야 합니다. 빠진 점포가 있으면 발송 전에 받아 주세요." }
+            hint:"참여 점포 수와 이행각서 장수가 일치해야 합니다. 빠진 점포가 있으면 발송 전에 받아 주세요. 매니저가 미리 수거해 간 분량이 있으면 아래 특이사항에 표시해 주세요." }
         ]},
         { label:"개인카드 영수증 처리", items:[
           { id:"attach", short:"영수증 부착", main:"안내된 방법대로 영수증 부착하기",
@@ -339,6 +359,7 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
       ]
     },
     { id:"s3", title:"서류 택배 발송", when:"9/22(화)까지",
+      note:"택배는 <b>행사 마지막 날에 꼭 보내지 않아도 됩니다.</b> 다음 날 보내도 되고, 늦어도 <b>9/22(화)까지만</b> 꼭 발송을 마쳐 주세요.",
       groups:[
         { label:"", items:[
           { id:"box", short:"박스 준비", main:"서류를 담을 박스 구하기",
@@ -355,7 +376,7 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
   ];
 
   var KEY = "sv-closing-v2";
-  var state = { checks:{}, region:"", market:"", name:"", memo:"", lastSubmit:null, dirty:false, receipts:[], noReceipts:false, receiptsDone:null };
+  var state = { checks:{}, region:"", market:"", name:"", memo:"", lastSubmit:null, dirty:false, receipts:[], noReceipts:false, receiptsDone:null, pledge:{ on:false, taken:"", all:false } };
   try { var raw = localStorage.getItem(KEY); if(raw){ var p = JSON.parse(raw); if(p && p.checks){ for(var k in p) state[k] = p[k]; } } } catch(e){}
   function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
 
@@ -376,6 +397,7 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
     var stamp = el("div", "stamp", "완료"); stamp.id = step.id + "-stamp"; stamp.hidden = true; head.appendChild(stamp);
     sec.appendChild(head);
 
+    if(step.note) sec.appendChild(el("div", "note", step.note));
     step.groups.forEach(function(g){
       if(g.label) sec.appendChild(el("div", "group", g.label));
       var ul = el("ul", "items");
@@ -394,6 +416,7 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
         li.appendChild(label); ul.appendChild(li);
       });
       sec.appendChild(ul);
+      if(g.pledgePanel){ var pp = el("div", "pl"); pp.id = "plBox"; sec.appendChild(pp); }
     });
 
     if(step.address){
@@ -529,6 +552,7 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
       region:state.region.trim(), market:state.market.trim(), name:state.name.trim(), memo:(state.memo || "").trim(),
       done:c.done, total:c.total,
       steps:c.steps.map(function(s){ return { done:s.done, total:s.total }; }),
+      pledge:pledgeSummary(),
       items:items
     };
     var btn = $("submitBtn"); btn.disabled = true; btn.textContent = "제출 중…";
@@ -545,6 +569,41 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
       })
       .then(function(){ btn.disabled = false; refresh(); });
   });
+
+  // ===== 이행각서 특이사항: 매니저가 미리 수거해 간 경우만 표시 =====
+  if(!state.pledge || typeof state.pledge !== "object") state.pledge = {};
+  function num(v){ var n = parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10); return isNaN(n) ? null : n; }
+  function pledgeSummary(){
+    var p = state.pledge;
+    if(!p.on) return { modeLabel:"없음", taken:"" };
+    return { modeLabel:p.all ? "전부 수거" : "일부 수거", taken:num(p.taken) == null ? "" : num(p.taken) };
+  }
+  function touchPledge(){ if(state.lastSubmit) state.dirty = true; save(); refresh(); }
+  function renderPledge(){
+    var box = $("plBox"); if(!box) return;
+    box.innerHTML = "";
+    var lab = el("label", "pl-check");
+    var cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "pl-on"; cb.checked = !!state.pledge.on;
+    cb.addEventListener("change", function(){ state.pledge.on = cb.checked; touchPledge(); renderPledge(); if(cb.checked){ var f = $("pl-taken"); if(f) f.focus(); } });
+    lab.appendChild(cb);
+    lab.appendChild(el("span", "", "<b>특이사항</b> · 매니저가 이행각서를 미리 수거해 갔습니다<small>해당하는 시장만 체크해 주세요</small>"));
+    box.appendChild(lab);
+    if(!state.pledge.on) return;
+
+    var f = el("div", "pl-f");
+    f.appendChild(el("label", "", "매니저가 수거해 간 장수")); f.lastChild.setAttribute("for", "pl-taken");
+    var inp = document.createElement("input"); inp.id = "pl-taken"; inp.type = "text"; inp.inputMode = "numeric"; inp.maxLength = 4; inp.placeholder = "장";
+    inp.value = state.pledge.taken === "" || state.pledge.taken == null ? "" : state.pledge.taken;
+    inp.addEventListener("input", function(){ var n = num(inp.value); inp.value = n == null ? "" : String(n); state.pledge.taken = n == null ? "" : n; touchPledge(); });
+    f.appendChild(inp); box.appendChild(f);
+
+    var all = el("label", "pl-check sub");
+    var acb = document.createElement("input"); acb.type = "checkbox"; acb.id = "pl-all"; acb.checked = !!state.pledge.all;
+    acb.addEventListener("change", function(){ state.pledge.all = acb.checked; touchPledge(); });
+    all.appendChild(acb); all.appendChild(el("span", "", "전부 수거해 가서 택배로 보낼 이행각서가 없습니다"));
+    box.appendChild(all);
+  }
+  renderPledge();
 
   // ===== 운영비 사용내역(영수증) 입력 =====
   var RC_TYPES = ["카드", "현금영수증", "기타"];
