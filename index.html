@@ -574,7 +574,7 @@ ul.items{list-style:none; margin:0; padding:4px 8px 10px}
   if(!state.pledge || typeof state.pledge !== "object") state.pledge = {};
   var PL_OPTS = [
     ["sv",  "제가 전부 수거해서 택배로 보냅니다", "SV 직접 발송"],
-    ["mgr", "매니저가 이미 수거해 갔습니다 <small>일부만 가져간 경우도 여기에 체크해 주세요</small>", "매니저 수거"]
+    ["mgr", "매니저가 이미 수거해 갔습니다", "매니저 수거"]
   ];
   function pledgeSummary(){
     var o = PL_OPTS.filter(function(x){ return x[0] === state.pledge.who; })[0];
