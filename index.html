@@ -1,506 +1,231 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>슈퍼바이저 마감 체크리스트</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
-<style>
-:root{
-  --ground:#EEF2EF; --surface:#FFFFFF; --ink:#16241F; --muted:#5A6A63; --line:#D5DDD8;
-  --jade:#0E6B55; --jade-soft:#DDEEE8; --stamp:#C4391D; --stamp-soft:#FBE9E4; --done:#8A9891;
-  --shadow:0 1px 2px rgba(22,36,31,.06),0 8px 24px -16px rgba(22,36,31,.25);
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --ground:#0F1714; --surface:#17211D; --ink:#E6EEEA; --muted:#97A8A0; --line:#2A3832;
-    --jade:#4FC3A1; --jade-soft:#1B3A31; --stamp:#F0785C; --stamp-soft:#3A201A; --done:#65756E;
-    --shadow:none;
+/**
+ * 슈퍼바이저 마감 체크리스트 — 제출 수신용 Apps Script (v3: 영수증 내역 접수 · 시트 2개)
+ *
+ * 붙여 넣을 때: 편집창을 Ctrl+A → Delete 로 완전히 비운 뒤 이 코드 전체를 붙여 넣으세요.
+ *              (첫 줄이 이 주석으로 시작해야 하고, function myFunction 안에 넣으면 안 됩니다)
+ * 저장(Ctrl+S) → 배포 → 배포 관리 → 연필 아이콘 → 버전 "새 버전" → 배포  (URL이 그대로 유지됩니다)
+ *
+ * 기록되는 곳 (구글 시트 2개)
+ *  ① 전체 기록 시트 = 이 스크립트가 붙어 있는 시트
+ *     - "제출현황"   : 슈퍼바이저 1명 = 1줄. 제출자 정보·체크 항목(O/빈칸)·전달사항·영수증 건수/합계
+ *     - "영수증 내역" : 웹에서 입력한 영수증 전체(지역·제출 시각 포함)
+ *  ② 영수증 전용 시트 = 아래 RECEIPT_SHEET_URL ("SV 운영비 영수증 내역")
+ *     - "영수증_전체"        : 엑셀 양식의 열 그대로, 영수증 사용내역만 누적
+ *     - "지역_시장명_이름" 탭 : 제출자별 운영비 사용내역서(제목·열·총계). 제출자마다 하단에 탭 1개
+ *
+ * 영수증 내역은 제출자당 1회만 접수됩니다. 다시 받아야 하면 ② 시트에서 그 사람의 탭을 삭제한 뒤 다시 제출하게 하세요.
+ *
+ * ★ 코드를 붙여 넣은 뒤 한 번: 위쪽 함수 선택에서 "setup" → ▶ 실행 → 권한 승인(허용). 그다음 배포 관리에서 "새 버전"으로 배포하세요.
+ */
+
+// (선택) 다른 구글 시트에 기록하고 싶으면 그 시트의 주소를 따옴표 안에 붙여 넣으세요. 비워 두면 이 스크립트가 붙어 있는 시트에 기록합니다.
+var SHEET_URL = '';
+
+// 영수증 내역만 쌓이는 전용 구글 시트 ("SV 운영비 영수증 내역")
+var RECEIPT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1jsPL2_4nnoAXrDyuooVv1CZ3j3PX2XsVjmaOpIBjKpA/edit';
+
+var SHEET_NAME = '제출현황';
+var RECEIPT_LOG = '영수증 내역';
+var ALL_RECEIPTS = '영수증_전체';
+var RECEIPT_WIDTHS = [90, 70, 80, 95, 190, 130, 95, 220];
+var RECEIPT_TITLE = '2026 운영비 사용내역서(9월)';
+var RECEIPT_HEADERS = ['시장명', '이름', '증빙구분', '사용일자', '사용처(상호명)', '사용내역', '사용금액', '세부 내역'];
+var FIXED = ['지역', '시장명', '담당자', '진행률', '1단계', '2단계', '3단계', '전달사항', '최초 제출', '최근 제출', '제출 횟수'];
+var RECEIPT_COLS = ['영수증 제출', '영수증 건수', '영수증 합계'];
+
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    var d = JSON.parse(e.postData.contents);
+    var who = { region: clean_(d.region), market: clean_(d.market), name: clean_(d.name) };
+    if (!who.region || !who.market || !who.name) return out_({ ok: false, error: '지역·시장명·이름을 모두 입력해 주세요.' });
+    var ss = getSs_();
+    return d.type === 'receipts' ? receipts_(ss, who, d) : checklist_(ss, who, d);
+  } catch (err) {
+    return out_({ ok: false, error: String(err && err.message ? err.message : err) });
+  } finally {
+    try { lock.releaseLock(); } catch (e2) {}
   }
 }
-:root[data-theme="dark"]{
-  --ground:#0F1714; --surface:#17211D; --ink:#E6EEEA; --muted:#97A8A0; --line:#2A3832;
-  --jade:#4FC3A1; --jade-soft:#1B3A31; --stamp:#F0785C; --stamp-soft:#3A201A; --done:#65756E;
-  --shadow:none;
-}
-*{box-sizing:border-box}
-[hidden]{display:none!important}
-body{
-  margin:0; background:var(--ground); color:var(--ink);
-  font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
-  font-size:16px; line-height:1.6; word-break:keep-all; overflow-wrap:anywhere;
-  -webkit-text-size-adjust:100%;
-}
-a{color:var(--jade); text-underline-offset:3px}
-button,input,textarea{font:inherit; color:inherit}
-:focus-visible{outline:2px solid var(--jade); outline-offset:2px; border-radius:4px}
 
-.bar{
-  position:sticky; top:env(safe-area-inset-top,0px); z-index:5;
-  background:var(--ground); border-bottom:1px solid var(--line); padding:10px 16px;
-}
-.bar-in{max-width:720px; margin:0 auto; display:flex; align-items:center; gap:12px}
-.bar-count{font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; font-size:14px}
-.track{flex:1; height:8px; background:var(--line); border-radius:99px; overflow:hidden}
-.fill{height:100%; width:0; background:var(--jade); border-radius:99px; transition:width .25s ease}
-.dday{
-  font-size:13px; font-weight:700; white-space:nowrap; font-variant-numeric:tabular-nums;
-  color:var(--stamp); background:var(--stamp-soft); padding:3px 9px; border-radius:99px;
-}
+/* ---------- 체크리스트 제출 ---------- */
+function checklist_(ss, who, d) {
+  var items = Array.isArray(d.items) ? d.items : [];
+  var steps = Array.isArray(d.steps) ? d.steps : [];
+  var labels = items.map(function (it) { return String(it.label || '').trim(); }).filter(String);
+  var st = openStatus_(ss, who, labels);
+  var row = st.row, col = st.col, now = now_();
 
-.wrap{max-width:720px; margin:0 auto; padding-inline:16px; padding-block:28px 140px; display:flex; flex-direction:column; gap:24px}
-
-.head{display:flex; flex-direction:column; gap:10px}
-.eyebrow{font-size:13px; font-weight:600; color:var(--jade); letter-spacing:.04em}
-h1{font-size:clamp(26px,6vw,34px); line-height:1.25; margin:0; font-weight:700; letter-spacing:-.02em; text-wrap:balance}
-.lede{margin:0; color:var(--muted); max-width:38em}
-.dates{display:flex; flex-wrap:wrap; gap:8px; margin-top:4px}
-.date{
-  display:flex; flex-direction:column; padding:10px 14px; border:1px solid var(--line);
-  border-radius:10px; background:var(--surface); min-width:150px; flex:1;
-}
-.date b{font-size:18px; font-variant-numeric:tabular-nums; letter-spacing:-.01em}
-.date span{font-size:13px; color:var(--muted)}
-
-.who{background:var(--surface); border:1.5px solid var(--jade); border-radius:16px; padding:18px; display:flex; flex-direction:column; gap:14px}
-.who h2{font-size:17px}
-.who p{margin:0; font-size:14px; color:var(--muted)}
-.fields{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
-.field{display:flex; flex-direction:column; gap:4px; min-width:0}
-.field label{font-size:13px; font-weight:600}
-.field label i{font-style:normal; color:var(--stamp)}
-.field input,.memo textarea{
-  width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--ground); font-size:16px;
-}
-.field input.bad{border-color:var(--stamp); background:var(--stamp-soft)}
-@media (max-width:560px){ .fields{grid-template-columns:1fr} }
-
-#steps{display:flex; flex-direction:column; gap:20px}
-.step{background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); overflow:hidden}
-.step-head{display:flex; gap:14px; align-items:flex-start; padding:20px 18px 16px; border-bottom:1px solid var(--line)}
-.num{
-  flex:none; width:34px; height:34px; border-radius:50%; background:var(--jade); color:var(--surface);
-  display:grid; place-items:center; font-weight:700; font-variant-numeric:tabular-nums; margin-top:2px;
-}
-.step-title{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px}
-h2{margin:0; font-size:20px; line-height:1.35; font-weight:700; letter-spacing:-.01em; text-wrap:balance}
-.when{font-size:13px; color:var(--muted); font-weight:500}
-.tally{flex:none; font-size:13px; font-weight:600; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:8px}
-.stamp{
-  flex:none; width:52px; height:52px; border-radius:50%; border:2.5px solid var(--stamp); color:var(--stamp);
-  display:grid; place-items:center; font-weight:700; font-size:14px; letter-spacing:.05em;
-  transform:rotate(-12deg); box-shadow:inset 0 0 0 2px var(--surface), inset 0 0 0 3.5px var(--stamp);
-  margin:-4px -2px -8px 0;
-}
-
-.group{padding:14px 18px 2px; font-size:13px; font-weight:700; color:var(--muted); letter-spacing:.03em}
-ul.items{list-style:none; margin:0; padding:4px 8px 10px}
-.item{display:flex; gap:12px; padding:11px 10px; border-radius:10px; cursor:pointer; align-items:flex-start}
-.item:hover{background:var(--ground)}
-.item input{position:absolute; opacity:0; width:1px; height:1px}
-.box{
-  flex:none; width:24px; height:24px; border:2px solid var(--done); border-radius:7px; margin-top:1px;
-  display:grid; place-items:center; background:var(--surface); transition:background .15s,border-color .15s;
-}
-.box svg{width:14px; height:14px; stroke:var(--surface); stroke-width:3; fill:none; opacity:0}
-.item input:checked + .box{background:var(--jade); border-color:var(--jade)}
-.item input:checked + .box svg{opacity:1}
-.item input:focus-visible + .box{outline:2px solid var(--jade); outline-offset:2px}
-.txt{flex:1; min-width:0; display:flex; flex-direction:column; gap:3px}
-.main{font-weight:500}
-.hint{font-size:14px; color:var(--muted); line-height:1.55}
-.item input:checked ~ .txt .main{color:var(--done); text-decoration:line-through; text-decoration-thickness:1px}
-.item input:checked ~ .txt .hint{color:var(--done)}
-.pill{
-  display:inline-block; font-size:12px; font-weight:700; color:var(--stamp); background:var(--stamp-soft);
-  padding:1px 8px; border-radius:99px; margin-right:6px; vertical-align:2px;
-}
-.path{font-weight:600; color:var(--ink)}
-.item input:checked ~ .txt .path{color:var(--done)}
-
-.actions{display:flex; flex-wrap:wrap; gap:8px; padding:0 18px 18px}
-.btn{
-  display:inline-flex; align-items:center; gap:6px; padding:9px 14px; border-radius:9px; border:1px solid var(--jade);
-  background:var(--surface); color:var(--jade); font-weight:600; font-size:14px; text-decoration:none; cursor:pointer;
-}
-.btn:hover{background:var(--jade-soft)}
-.btn.solid{background:var(--jade); color:var(--surface)}
-.btn.solid:hover{filter:brightness(1.08); background:var(--jade)}
-
-.addr{margin:4px 18px 18px; border:1.5px dashed var(--done); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:12px}
-.addr-label{font-size:12px; font-weight:700; letter-spacing:.08em; color:var(--muted)}
-.addr dl{margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:15px}
-.addr dt{color:var(--muted); font-size:13px; padding-top:2px; white-space:nowrap}
-.addr dd{margin:0; font-weight:600; font-variant-numeric:tabular-nums}
-.addr .actions{padding:0}
-
-.memo{display:flex; flex-direction:column; gap:6px}
-.memo label{font-size:14px; font-weight:600}
-.memo textarea{background:var(--surface); min-height:72px; resize:vertical}
-
-.foot{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; font-size:13px; color:var(--muted)}
-.reset{background:none; border:0; padding:6px 0; color:var(--muted); text-decoration:underline; text-underline-offset:3px; cursor:pointer; font-size:13px}
-.reset.armed{color:var(--stamp); font-weight:700}
-
-.submitbar{
-  position:fixed; left:0; right:0; bottom:0; z-index:6; background:var(--surface); border-top:1px solid var(--line);
-  padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px)); box-shadow:0 -8px 24px -18px rgba(22,36,31,.4);
-}
-.submit-in{max-width:720px; margin:0 auto; display:flex; align-items:center; gap:12px}
-.submit-info{flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.35}
-.submit-info b{font-size:14px; font-variant-numeric:tabular-nums}
-.submit-info span{font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums}
-.submit-info span.ok{color:var(--jade); font-weight:600}
-.submit-info span.dirty{color:var(--stamp); font-weight:600}
-.submit{
-  flex:none; border:0; border-radius:11px; background:var(--jade); color:var(--surface); font-weight:700; font-size:16px;
-  padding:13px 20px; cursor:pointer; min-width:128px;
-}
-.submit:disabled{opacity:.6; cursor:progress}
-
-.toast{
-  position:fixed; left:50%; bottom:calc(92px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%);
-  background:var(--ink); color:var(--ground); padding:10px 16px; border-radius:99px; font-size:14px; font-weight:600;
-  width:max-content; max-width:calc(100% - 32px); text-align:center; z-index:9;
-}
-@media (max-width:420px){
-  .step-head{padding:18px 14px 14px; gap:10px}
-  .group{padding-inline:14px} ul.items{padding-inline:4px}
-  .addr{margin-inline:14px} .actions{padding-inline:14px}
-}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
-</style>
-</head>
-<body>
-
-<div class="bar" role="status" aria-live="polite">
-  <div class="bar-in">
-    <span class="bar-count" id="barCount">0 / 0</span>
-    <div class="track" aria-hidden="true"><div class="fill" id="barFill"></div></div>
-    <span class="dday" id="dday">제출 9/22(화)</span>
-  </div>
-</div>
-
-<main class="wrap">
-  <header class="head">
-    <div class="eyebrow">2026 온누리상품권 환급행사 · 슈퍼바이저(SV)용</div>
-    <h1>행사 마감 체크리스트</h1>
-    <p class="lede">완료한 항목을 체크하고 아래 <b>제출하기</b>를 눌러 주세요. 중간에 제출해도 되고, 다시 제출하면 최신 상태로 갱신됩니다.</p>
-    <div class="dates">
-      <div class="date"><b>9/20 (일)</b><span>행사 마지막 날 · 1번 완료 후 1차 제출</span></div>
-      <div class="date"><b>9/22 (화)</b><span>2·3번 완료 후 최종 제출 마감</span></div>
-    </div>
-  </header>
-
-  <section class="who" aria-labelledby="whoTitle">
-    <h2 id="whoTitle">제출자 정보</h2>
-    <div class="fields">
-      <div class="field"><label for="fRegion">지역 <i>*</i></label><input id="fRegion" type="text" placeholder="예: 대전" autocomplete="off" maxlength="20"></div>
-      <div class="field"><label for="fMarket">시장명 <i>*</i></label><input id="fMarket" type="text" placeholder="예: 중리시장" autocomplete="off" maxlength="30"></div>
-      <div class="field"><label for="fName">담당자(슈퍼바이저) 이름 <i>*</i></label><input id="fName" type="text" placeholder="예: 홍길동" autocomplete="name" maxlength="20"></div>
-    </div>
-    <p>다시 제출할 때도 세 칸을 처음과 똑같이 적어 주세요. 같은 사람의 기록으로 갱신됩니다.</p>
-  </section>
-
-  <div id="steps"></div>
-
-  <div class="memo">
-    <label for="fMemo">전달사항 (선택)</label>
-    <textarea id="fMemo" maxlength="500" placeholder="누락된 서류, 물자 파손, 택배 발송 예정일 등 알려야 할 내용이 있으면 적어 주세요."></textarea>
-  </div>
-
-  <footer class="foot">
-    <span>문의: 마케팅피플 · 02-567-2922</span>
-    <button class="reset" id="resetBtn" type="button">체크 전체 초기화</button>
-  </footer>
-</main>
-
-<div class="submitbar">
-  <div class="submit-in">
-    <div class="submit-info">
-      <b id="subCount">0 / 0 체크</b>
-      <span id="subStatus">아직 제출하지 않았습니다</span>
-    </div>
-    <button class="submit" id="submitBtn" type="button">제출하기</button>
-  </div>
-</div>
-
-<div class="toast" id="toast" hidden></div>
-
-<script>
-(function(){
-  /* ===== ① 제출 주소: Apps Script 웹 앱 URL을 따옴표 안에 붙여 넣으세요 ===== */
-  var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxHUpBBQ5yy1tW6LjfERfOY4Cq-oKubAXge09RAjZfYuhJvbelPUP0dx_v5iFltmplWUw/exec";
-
-  var URL_GUIDE = "https://onnoorisv.vercel.app/";
-  var URL_DRIVE = "https://drive.google.com/drive/folders/1t1R6ygm9nr5vGSOuVk7EoqOaXhIrkogl?usp=sharing";
-  var ADDRESS = "서울시 강남구 역삼로 230 세명빌딩 3층 마케팅피플";
-  var PHONE = "02-567-2922";
-
-  /* ===== ② 체크리스트 내용. main = 항목 문구, hint = 보조 설명, important:true = '중요' 표시,
-     short = 구글 시트 열 제목. id 값은 체크 저장에 쓰이므로 바꾸지 마세요(새 항목은 새 id). ===== */
-  var STEPS = [
-    { id:"s1", title:"환급소 마감 보고", when:"행사 마지막 날 · 9/20(일)",
-      groups:[
-        { label:"물자 회수", items:[
-          { id:"pack", short:"물자 박스 재포장", main:"행사 물자를 처음 받았을 때처럼 박스에 다시 포장하기",
-            hint:"마지막 날 중간중간 요원들과 틈틈이 포장해 두면 퇴근이 빨라집니다." },
-          { id:"handover", short:"상인회에 박스 전달", main:"포장한 박스를 상인회에 전달하기",
-            hint:"회수는 상인회에서 진행합니다. 회수일은 따로 선택할 수 없습니다." }
-        ]},
-        { label:"잔여 상품권", items:[
-          { id:"photo", short:"잔여 상품권 촬영", important:true, main:"금고에서 최종 잔여 상품권을 꺼내 전체 사진 찍기",
-            hint:"남은 상품권의 일련번호가 모두 잘 보이게 촬영해 주세요." },
-          { id:"report", short:"회수 보고 업로드", main:"에이전트 링크에 회수 보고 올리기",
-            hint:"<span class='path'>환급소 관리 탭 → 사후 물자·상품권 회수 보고</span>에 잔여 수량을 입력하고 사진을 업로드합니다. 실제 반납은 상인회장님이 진행하므로 사진과 수량만 올리면 됩니다." },
-          { id:"note", short:"특이사항 기재", main:"특이사항이 있으면 보고란에 적기",
-            hint:"물자 파손·분실, 회수 관련 요청 등. 없으면 그냥 체크하세요." }
-        ]}
-      ]
-    },
-    { id:"s2", title:"서류·영수증 정리 및 업로드", when:"9/22(화)까지",
-      groups:[
-        { label:"종이 서류 모으기", items:[
-          { id:"d-receipt", short:"개인카드 영수증", main:"슈퍼바이저 개인카드 구매 영수증" },
-          { id:"d-handover", short:"인수인계증", main:"인수인계증" },
-          { id:"d-edu", short:"교육대장", main:"교육대장" },
-          { id:"d-attend", short:"출퇴근기록부", main:"출퇴근기록부" },
-          { id:"d-pledge", short:"이행각서", main:"이행각서" },
-          { id:"d-etc", short:"기타 서류", main:"그 밖의 종이 서류 전부" }
-        ]},
-        { label:"이행각서 최종 확인", items:[
-          { id:"pledge100", short:"이행각서 100% 확인", important:true, main:"상인회장님과 참여점포 리스트를 대조해 이행각서 100% 취합 확인하기",
-            hint:"참여 점포 수와 이행각서 장수가 일치해야 합니다. 빠진 점포가 있으면 발송 전에 받아 주세요." }
-        ]},
-        { label:"개인카드 영수증 처리", items:[
-          { id:"attach", short:"영수증 부착", main:"안내된 방법대로 영수증 부착하기",
-            hint:"SV 안내 사이트의 <span class='path'>운영안내 탭</span>에 부착 방법이 나와 있습니다." },
-          { id:"excel", short:"운영비내역서 작성", main:"운영비내역서(엑셀)에 사용 내역을 시간순으로 기재하기",
-            hint:"따로 전달받은 엑셀 양식에 영수증 한 장당 한 줄씩 적습니다." },
-          { id:"rphoto", short:"영수증 촬영", main:"영수증을 빠짐없이 사진으로 찍기" },
-          { id:"upload", short:"드라이브 업로드", main:"드라이브의 담당 시장 폴더에 운영비내역서와 영수증 사진 올리기",
-            hint:"공유 드라이브에서 본인 시장 이름의 폴더를 찾아 업로드합니다." }
-        ]}
-      ],
-      actions:[
-        { label:"SV 안내 사이트 열기", href:URL_GUIDE },
-        { label:"제출 드라이브 열기", href:URL_DRIVE, solid:true }
-      ]
-    },
-    { id:"s3", title:"서류 택배 발송", when:"9/22(화)까지",
-      groups:[
-        { label:"", items:[
-          { id:"box", short:"박스 준비", main:"서류를 담을 박스 구하기",
-            hint:"주변 상점이나 상인회에 먼저 부탁해 보고, 없으면 우체국에서 박스를 구입합니다." },
-          { id:"packdocs", short:"서류 박스 포장", main:"2번에서 모은 서류를 전부 박스에 넣기",
-            hint:"영수증, 인수인계증, 교육대장, 이행각서, 출퇴근기록부, 기타 서류" },
-          { id:"ship", short:"택배 발송", main:"편의점 택배로 아래 주소에 발송하기" },
-          { id:"shipreceipt", short:"택배 영수증 동봉", main:"택배비 결제 영수증(슈퍼바이저 카드)도 부착해서 함께 넣기",
-            hint:"택배비도 운영비이므로 운영비내역서에 한 줄 추가해 주세요." }
-        ]}
-      ],
-      address:true
-    }
-  ];
-
-  var KEY = "sv-closing-v2";
-  var state = { checks:{}, region:"", market:"", name:"", memo:"", lastSubmit:null, dirty:false };
-  try { var raw = localStorage.getItem(KEY); if(raw){ var p = JSON.parse(raw); if(p && p.checks){ for(var k in p) state[k] = p[k]; } } } catch(e){}
-  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
-
-  var CHECK_SVG = "<svg viewBox='0 0 16 16' aria-hidden='true'><path d='M3 8.5l3.2 3.2L13 4.8' stroke-linecap='round' stroke-linejoin='round'/></svg>";
-  var stepsEl = document.getElementById("steps");
-  function el(tag, cls, html){ var n = document.createElement(tag); if(cls) n.className = cls; if(html != null) n.innerHTML = html; return n; }
-  function $(id){ return document.getElementById(id); }
-
-  STEPS.forEach(function(step, si){
-    var sec = el("section", "step"); sec.id = step.id;
-    var head = el("div", "step-head");
-    head.appendChild(el("div", "num", String(si+1)));
-    var t = el("div", "step-title");
-    t.appendChild(el("h2", "", step.title));
-    t.appendChild(el("div", "when", step.when));
-    head.appendChild(t);
-    var tally = el("div", "tally"); tally.id = step.id + "-tally"; head.appendChild(tally);
-    var stamp = el("div", "stamp", "완료"); stamp.id = step.id + "-stamp"; stamp.hidden = true; head.appendChild(stamp);
-    sec.appendChild(head);
-
-    step.groups.forEach(function(g){
-      if(g.label) sec.appendChild(el("div", "group", g.label));
-      var ul = el("ul", "items");
-      g.items.forEach(function(it){
-        var key = step.id + "." + it.id;
-        var li = el("li"), label = el("label", "item");
-        var cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "cb-" + step.id + "-" + it.id;
-        cb.checked = !!state.checks[key];
-        cb.addEventListener("change", function(){ state.checks[key] = cb.checked; state.dirty = true; save(); refresh(); });
-        label.appendChild(cb);
-        label.appendChild(el("span", "box", CHECK_SVG));
-        var txt = el("span", "txt");
-        txt.appendChild(el("span", "main", (it.important ? "<span class='pill'>중요</span>" : "") + it.main));
-        if(it.hint) txt.appendChild(el("span", "hint", it.hint));
-        label.appendChild(txt);
-        li.appendChild(label); ul.appendChild(li);
-      });
-      sec.appendChild(ul);
-    });
-
-    if(step.address){
-      var a = el("div", "addr");
-      a.appendChild(el("div", "addr-label", "받는 곳"));
-      a.appendChild(el("dl", "", "<dt>주소</dt><dd>" + ADDRESS + "</dd><dt>받는 사람</dt><dd>마케팅피플</dd><dt>연락처</dt><dd>" + PHONE + "</dd>"));
-      var aa = el("div", "actions");
-      aa.appendChild(copyBtn("주소 복사", ADDRESS));
-      aa.appendChild(copyBtn("전화번호 복사", PHONE));
-      a.appendChild(aa); sec.appendChild(a);
-    }
-    if(step.actions){
-      var ac = el("div", "actions");
-      step.actions.forEach(function(x){
-        var l = el("a", "btn" + (x.solid ? " solid" : ""), x.label + " ↗");
-        l.href = x.href; l.target = "_blank"; l.rel = "noopener noreferrer";
-        ac.appendChild(l);
-      });
-      sec.appendChild(ac);
-    }
-    stepsEl.appendChild(sec);
+  var done = Number(d.done) || 0, total = Number(d.total) || 0;
+  row[col('진행률')] = (total && done === total) ? '전체 완료 (' + done + '/' + total + ')' : done + '/' + total;
+  ['1단계', '2단계', '3단계'].forEach(function (h, i) {
+    var s = steps[i];
+    row[col(h)] = s ? (s.done === s.total ? '완료' : s.done + '/' + s.total) : '';
   });
-
-  function copyBtn(label, text){
-    var b = el("button", "btn", label); b.type = "button";
-    b.addEventListener("click", function(){
-      var ok = function(){ toast("복사했습니다"); };
-      var fail = function(){
-        try{
-          var ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-          document.body.appendChild(ta); ta.select();
-          var done = document.execCommand("copy"); document.body.removeChild(ta);
-          done ? ok() : toast("복사가 막혀 있어요. 글자를 길게 눌러 복사해 주세요.");
-        }catch(e){ toast("복사가 막혀 있어요. 글자를 길게 눌러 복사해 주세요."); }
-      };
-      try{ navigator.clipboard.writeText(text).then(ok, fail); }catch(e){ fail(); }
-    });
-    return b;
-  }
-
-  var toastTimer;
-  function toast(msg, ms){
-    var t = $("toast"); t.textContent = msg; t.hidden = false;
-    clearTimeout(toastTimer); toastTimer = setTimeout(function(){ t.hidden = true; }, ms || 2600);
-  }
-
-  function counts(){
-    var total = 0, done = 0, steps = [];
-    STEPS.forEach(function(step){
-      var st = 0, sd = 0;
-      step.groups.forEach(function(g){ g.items.forEach(function(it){ st++; if(state.checks[step.id + "." + it.id]) sd++; }); });
-      total += st; done += sd; steps.push({ id:step.id, title:step.title, done:sd, total:st });
-    });
-    return { total:total, done:done, steps:steps };
-  }
-
-  function refresh(){
-    var c = counts();
-    c.steps.forEach(function(s){
-      var complete = s.done === s.total;
-      $(s.id + "-tally").textContent = s.done + " / " + s.total;
-      $(s.id + "-tally").hidden = complete;
-      $(s.id + "-stamp").hidden = !complete;
-    });
-    $("barCount").textContent = c.done + " / " + c.total + " 완료";
-    $("barFill").style.width = (c.total ? (c.done/c.total*100) : 0) + "%";
-    $("subCount").textContent = c.done + " / " + c.total + " 체크";
-    var st = $("subStatus"), btn = $("submitBtn");
-    st.className = "";
-    if(!state.lastSubmit){
-      st.textContent = "아직 제출하지 않았습니다";
-      btn.textContent = c.done === c.total ? "최종 제출하기" : "제출하기";
-    } else if(state.dirty){
-      st.textContent = "변경된 내용이 있습니다 · 다시 제출해 주세요"; st.className = "dirty";
-      btn.textContent = c.done === c.total ? "최종 제출하기" : "다시 제출하기";
-    } else {
-      st.textContent = "제출 완료 · " + state.lastSubmit.at + " (" + state.lastSubmit.done + "/" + state.lastSubmit.total + ")"; st.className = "ok";
-      btn.textContent = "다시 제출하기";
-    }
-  }
-
-  // D-day (한국 시간 기준, 마감 2026-09-22)
-  (function(){
-    var now = new Date(Date.now() + 9*3600*1000);
-    var today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    var diff = Math.round((Date.UTC(2026, 8, 22) - today) / 86400000);
-    $("dday").textContent = diff > 0 ? "제출 마감 D-" + diff : diff === 0 ? "오늘 제출 마감" : "마감 " + (-diff) + "일 지남";
-  })();
-
-  // 제출자 정보·전달사항
-  [["fRegion","region"],["fMarket","market"],["fName","name"],["fMemo","memo"]].forEach(function(pair){
-    var inp = $(pair[0]); inp.value = state[pair[1]] || "";
-    inp.addEventListener("input", function(){
-      state[pair[1]] = inp.value; inp.classList.remove("bad");
-      if(state.lastSubmit) state.dirty = true;
-      save(); refresh();
-    });
+  row[col('전달사항')] = String(d.memo || '').slice(0, 500);
+  if (!row[col('최초 제출')]) row[col('최초 제출')] = now;
+  row[col('최근 제출')] = now;
+  row[col('제출 횟수')] = String((parseInt(row[col('제출 횟수')], 10) || 0) + 1);
+  items.forEach(function (it) {
+    var c = col(String(it.label || '').trim());
+    if (c >= 0) row[c] = it.checked ? 'O' : '';
   });
+  saveStatus_(st);
+  return out_({ ok: true, updated: st.existed, done: done, total: total });
+}
 
-  // 제출
-  function nowKST(){
-    var d = new Date(Date.now() + 9*3600*1000);
-    function z(n){ return (n < 10 ? "0" : "") + n; }
-    return (d.getUTCMonth()+1) + "/" + d.getUTCDate() + " " + z(d.getUTCHours()) + ":" + z(d.getUTCMinutes());
-  }
-  $("submitBtn").addEventListener("click", function(){
-    var missing = null;
-    [["fRegion","region"],["fMarket","market"],["fName","name"]].forEach(function(pair){
-      var inp = $(pair[0]);
-      if(!(state[pair[1]] || "").trim()){ inp.classList.add("bad"); if(!missing) missing = inp; }
-    });
-    if(missing){ toast("지역·시장명·이름을 먼저 입력해 주세요"); missing.scrollIntoView({block:"center"}); missing.focus({preventScroll:true}); return; }
-    if(!/^https:\/\//.test(SCRIPT_URL)){ toast("제출 기능이 아직 연결되지 않았습니다. 담당 매니저에게 알려 주세요.", 4000); return; }
-
-    var c = counts(), items = [];
-    STEPS.forEach(function(step, si){
-      var n = 0;
-      step.groups.forEach(function(g){ g.items.forEach(function(it){
-        n++; items.push({ label:(si+1) + "-" + n + " " + (it.short || it.main), checked:!!state.checks[step.id + "." + it.id] });
-      }); });
-    });
-    var payload = {
-      region:state.region.trim(), market:state.market.trim(), name:state.name.trim(), memo:(state.memo || "").trim(),
-      done:c.done, total:c.total,
-      steps:c.steps.map(function(s){ return { done:s.done, total:s.total }; }),
-      items:items
+/* ---------- 영수증 내역 제출 (제출자당 1회) ---------- */
+function receipts_(ss, who, d) {
+  var rows = (Array.isArray(d.rows) ? d.rows : []).map(function (r) {
+    return {
+      type: clean_(r.type), date: clean_(r.date), place: clean_(r.place, 80), item: clean_(r.item, 80),
+      amount: Math.round(Number(String(r.amount).replace(/[^0-9.-]/g, '')) || 0), detail: clean_(r.detail, 200)
     };
-    var btn = $("submitBtn"); btn.disabled = true; btn.textContent = "제출 중…";
-    fetch(SCRIPT_URL, { method:"POST", headers:{ "Content-Type":"text/plain;charset=utf-8" }, body:JSON.stringify(payload) })
-      .then(function(r){ return r.json(); })
-      .then(function(res){
-        if(!res || !res.ok){ var se = new Error(res && res.error ? res.error : "서버 오류"); se.fromServer = true; throw se; }
-        state.lastSubmit = { at:nowKST(), done:c.done, total:c.total }; state.dirty = false; save();
-        toast(c.done === c.total ? "최종 제출했습니다. 고생 많으셨습니다!" : "제출했습니다. 남은 항목을 마치면 다시 제출해 주세요.", 3600);
-      })
-      .catch(function(err){
-        toast(err && err.fromServer ? "제출이 기록되지 않았습니다. 담당 매니저에게 알려 주세요. (" + err.message + ")" : "제출에 실패했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요.", 6000);
-        if(window.console) console.error(err);
-      })
-      .then(function(){ btn.disabled = false; refresh(); });
-  });
+  }).filter(function (r) { return r.place || r.item || r.amount; });
+  var none = !!d.none && !rows.length;
+  if (!rows.length && !none) return out_({ ok: false, error: '영수증 내역을 1건 이상 입력해 주세요.' });
+  if (rows.length > 200) return out_({ ok: false, error: '영수증은 200건까지 제출할 수 있습니다.' });
+  rows.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
-  // 초기화 (두 번 눌러 확인)
-  var resetBtn = $("resetBtn"), armTimer;
-  resetBtn.addEventListener("click", function(){
-    if(!resetBtn.classList.contains("armed")){
-      resetBtn.classList.add("armed"); resetBtn.textContent = "한 번 더 누르면 모두 지워집니다";
-      armTimer = setTimeout(disarm, 4000); return;
+  var rs = getReceiptSs_();                      // 영수증 전용 스프레드시트
+  var tabName = tabName_(who);
+  var sh = rs.getSheetByName(tabName);
+  if (sh && sh.getLastRow() >= 3) return out_({ ok: false, locked: true, error: '이미 영수증 내역을 제출했습니다. 추가 제출은 불가합니다.' });
+
+  var n = RECEIPT_HEADERS.length;
+  var values = none
+    ? [[who.market, who.name, '', '', '사용 내역 없음', '', 0, '']]
+    : rows.map(function (r) { return [who.market, who.name, r.type, r.date, r.place, r.item, r.amount, r.detail]; });
+
+  // 1) [영수증 시트] 전체 누적 탭 — 엑셀 양식의 열만 그대로
+  var all = rs.getSheetByName(ALL_RECEIPTS);
+  if (!all) {
+    var first = rs.getSheets()[0];
+    all = (first && first.getLastRow() === 0) ? first.setName(ALL_RECEIPTS) : rs.insertSheet(ALL_RECEIPTS, 0);
+    all.getRange(1, 1, 1, n).setValues([RECEIPT_HEADERS]).setFontWeight('bold').setBackground('#DDEEE8').setHorizontalAlignment('center');
+    all.setFrozenRows(1);
+    RECEIPT_WIDTHS.forEach(function (w, i) { all.setColumnWidth(i + 1, w); });
+  }
+  var start = all.getLastRow() + 1;
+  all.getRange(start, 3, values.length, 2).setNumberFormat('@');            // 증빙구분·사용일자는 글자 그대로
+  all.getRange(start, 1, values.length, n).setValues(values);
+  all.getRange(start, 7, values.length, 1).setNumberFormat('#,##0');
+
+  // 2) [영수증 시트] 제출자별 탭 — 엑셀 양식과 같은 구성(제목·열·총계)
+  if (!sh) sh = rs.insertSheet(tabName, rs.getNumSheets());
+  sh.getRange(1, 1, 1, n).merge().setValue(RECEIPT_TITLE).setFontSize(14).setFontWeight('bold').setHorizontalAlignment('center');
+  sh.getRange(2, 1, 1, n).setValues([RECEIPT_HEADERS]).setFontWeight('bold').setBackground('#DDEEE8').setHorizontalAlignment('center');
+  sh.getRange(3, 3, values.length, 2).setNumberFormat('@');
+  sh.getRange(3, 1, values.length, n).setValues(values);
+  sh.getRange(3, 7, values.length, 1).setNumberFormat('#,##0');
+  var totalRow = 3 + values.length;
+  sh.getRange(totalRow, 1, 1, 6).merge().setValue('총         계').setHorizontalAlignment('center').setFontWeight('bold');
+  sh.getRange(totalRow, 7).setFormula('=SUM(G3:G' + (totalRow - 1) + ')').setNumberFormat('#,##0').setFontWeight('bold');
+  sh.getRange(2, 1, values.length + 2, n).setBorder(true, true, true, true, true, true);
+  RECEIPT_WIDTHS.forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(2);
+
+  // 3) [전체 기록 시트] 영수증 내역 탭 — 지역·제출 시각까지 포함
+  var stamp = now_();
+  var log = ss.getSheetByName(RECEIPT_LOG);
+  if (!log) {
+    log = ss.insertSheet(RECEIPT_LOG, ss.getNumSheets());
+    log.getRange(1, 1, 1, n + 2).setValues([['지역'].concat(RECEIPT_HEADERS).concat(['제출 시각'])]).setFontWeight('bold').setBackground('#DDEEE8');
+    log.setFrozenRows(1);
+  }
+  var logValues = values.map(function (v) { return [who.region].concat(v).concat([stamp]); });
+  var ls = log.getLastRow() + 1;
+  log.getRange(ls, 4, logValues.length, 2).setNumberFormat('@');
+  log.getRange(ls, 10, logValues.length, 1).setNumberFormat('@');
+  log.getRange(ls, 1, logValues.length, n + 2).setValues(logValues);
+  log.getRange(ls, 8, logValues.length, 1).setNumberFormat('#,##0');
+
+  // 4) [전체 기록 시트] 제출현황에 영수증 제출 여부 표시
+  var sum = rows.reduce(function (s, r) { return s + r.amount; }, 0);
+  var st = openStatus_(ss, who, []);
+  st.row[st.col('영수증 제출')] = none ? '없음으로 제출 (' + stamp + ')' : '제출 (' + stamp + ')';
+  st.row[st.col('영수증 건수')] = String(rows.length);
+  st.row[st.col('영수증 합계')] = String(sum).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  saveStatus_(st);
+
+  return out_({ ok: true, count: rows.length, sum: sum, tab: tabName });
+}
+
+// 영수증 전용 스프레드시트 열기
+function getReceiptSs_() {
+  if (!/^https:\/\//.test(RECEIPT_SHEET_URL)) throw new Error('RECEIPT_SHEET_URL(영수증 시트 주소)이 비어 있습니다.');
+  try { return SpreadsheetApp.openByUrl(RECEIPT_SHEET_URL); }
+  catch (e) { throw new Error('영수증 시트를 열 수 없습니다. Apps Script에서 setup을 한 번 실행해 권한을 승인해 주세요. (' + e.message + ')'); }
+}
+
+/* ---------- 제출현황 탭: 제출자 줄 찾기/만들기 ---------- */
+function openStatus_(ss, who, labels) {
+  var sh = ss.getSheetByName(SHEET_NAME);
+  var isNew = !sh;
+  if (isNew) sh = ss.insertSheet(SHEET_NAME, 0);
+
+  var lastCol = sh.getLastColumn();
+  var headers = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String) : [];
+  if (!headers.length || headers[0] !== FIXED[0]) headers = FIXED.slice();
+  RECEIPT_COLS.concat(labels).forEach(function (h) { if (h && headers.indexOf(h) < 0) headers.push(h); });
+  sh.getRange(1, 1, 1, headers.length).setNumberFormat('@').setValues([headers])
+    .setFontWeight('bold').setBackground('#DDEEE8').setWrap(true).setVerticalAlignment('middle');
+  if (isNew || sh.getFrozenRows() === 0) { sh.setFrozenRows(1); sh.setFrozenColumns(3); }
+
+  var key = key_(who.region, who.market, who.name);
+  var lastRow = sh.getLastRow();
+  var rowIndex = -1, existing = null;
+  if (lastRow >= 2) {
+    var data = sh.getRange(2, 1, lastRow - 1, headers.length).getDisplayValues();
+    for (var i = 0; i < data.length; i++) {
+      if (key_(data[i][0], data[i][1], data[i][2]) === key) { rowIndex = i + 2; existing = data[i]; break; }
     }
-    clearTimeout(armTimer); disarm();
-    state.checks = {}; if(state.lastSubmit) state.dirty = true; save();
-    document.querySelectorAll(".item input").forEach(function(cb){ cb.checked = false; });
-    refresh(); toast("체크를 초기화했습니다");
-  });
-  function disarm(){ resetBtn.classList.remove("armed"); resetBtn.textContent = "체크 전체 초기화"; }
+  }
+  var row = existing ? existing.slice() : [];
+  while (row.length < headers.length) row.push('');
+  var col = function (h) { return headers.indexOf(h); };
+  row[col('지역')] = who.region; row[col('시장명')] = who.market; row[col('담당자')] = who.name;
+  if (rowIndex < 0) rowIndex = Math.max(lastRow, 1) + 1;
+  return { sh: sh, headers: headers, row: row, col: col, rowIndex: rowIndex, existed: !!existing };
+}
 
-  refresh();
-})();
-</script>
-</body>
-</html>
+function saveStatus_(st) {
+  // "2/5" 같은 값이 날짜로 바뀌지 않도록 일반 텍스트 서식으로 기록
+  st.sh.getRange(st.rowIndex, 1, 1, st.headers.length).setNumberFormat('@').setValues([st.row]);
+  st.sh.getRange(st.rowIndex, FIXED.length + 1, 1, Math.max(st.headers.length - FIXED.length, 1)).setHorizontalAlignment('center');
+}
+
+/* ---------- 공통 ---------- */
+// ★ 코드를 붙여 넣은 뒤 한 번 실행하세요: 두 시트에 접근할 권한을 승인받고, 주소를 실행 로그에 보여줍니다.
+function setup() {
+  var ss = getSs_();
+  var rs = getReceiptSs_();
+  Logger.log('① 전체 기록 시트: ' + ss.getUrl());
+  Logger.log('② 영수증 전용 시트: ' + rs.getUrl());
+}
+
+function getSs_() {
+  if (/^https:\/\//.test(SHEET_URL)) return SpreadsheetApp.openByUrl(SHEET_URL);
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) return active;
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('SS_ID');
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) {} }
+  var created = SpreadsheetApp.create('슈퍼바이저 마감 제출현황');
+  props.setProperty('SS_ID', created.getId());
+  return created;
+}
+
+// 웹 앱 URL을 브라우저로 열었을 때 동작 확인용 (v2가 보이면 새 코드가 배포된 것입니다)
+function doGet() {
+  return out_({ ok: true, version: 3, message: '슈퍼바이저 마감 체크리스트 수신 중 (영수증 접수 포함)' });
+}
+
+function now_() { return Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm'); }
+function clean_(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max || 40); }
+function key_(a, b, c) { return [a, b, c].map(function (v) { return String(v).replace(/\s+/g, '').toLowerCase(); }).join('|'); }
+function tabName_(who) {
+  return [who.region, who.market, who.name].map(function (v) { return String(v).replace(/[\s\[\]\*\?\/\\:']/g, ''); }).join('_').slice(0, 90);
+}
+function out_(obj) { return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }
